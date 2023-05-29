@@ -1,0 +1,77 @@
+
+```
+import logging
+import os
+import requests
+from io import BytesIO
+from telegram import ChatAction
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+
+# تفعيل الإعدادات اللازمة للتسجيل
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# تعريف المعرف ورمز الوصول الخاص بالبوت
+TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+# إنشاء مثيل Updater وتمرير معرف البوت ورمز الوصول إليه
+updater = Updater(TOKEN, use_context=True)
+
+# تعريف الدالة اللازمة لتحويل الصور وإرسالها إلى المستخدم
+def cartoonize(update, context):
+    # إرسال رسالة "جاري معالجة الصورة"
+    context.bot.send_message(chat_id=update.effective_chat.id, text="جاري معالجة الصورة...")
+
+    # إرسال إشارة للمستخدم بأن البوت يقوم بمعالجة الصورة
+    context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
+
+    # استلام الصورة المرسلة من المستخدم
+    photo_file = context.bot.getFile(update.message.photo[-1].file_id)
+
+    # تحويل الصورة إلى مصفوفة باستخدام المكتبة Pillow
+    photo_buffer = BytesIO()
+    photo_file.download(out=photo_buffer)
+    photo_buffer.seek(0)
+
+    # تنفيذ عملية تحويل الصورة إلى صورة كرتونية باستخدام DALL-E وحفظ الصورة المعالجة في ملف مؤقت
+    try:
+        # إرسال الصورة إلى DALL-E واستلام النتيجة
+        response = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {os.environ['DALLE_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "image-alpha-001",
+                "prompt": "cartoonize this image",
+                "num_images": 1,
+                "size": "512x512",
+                "response_format": "url",
+                "image": photo_buffer.read().hex(),
+            },
+        )
+        response.raise_for_status()
+
+        # حفظ الصورة المعالجة في ملف مؤقت
+        cartoon_image_url = response.json()["data"][0]["url"]
+        cartoon_image_response = requests.get(cartoon_image_url)
+        cartoon_image_buffer = BytesIO(cartoon_image_response.content)
+        cartoon_image_buffer.seek(0)
+
+        # إرسال الصورة المعالجة إلى المستخدم
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=cartoon_image_buffer)
+
+        # حذف الملف المؤقت
+        cartoon_image_buffer.close()
+           except Exception as e:
+        # في حالة وجود أي خطأ، إرسال رسالة بالخطأ للمستخدم
+        context.bot.send_message(chat_id=update.effective_chat.id, text=f"حدث خطأ: {e}")
+
+# إضافة المعالج الخاص بالأمر cartoonize لمعالجة الصور
+updater.dispatcher.add_handler(MessageHandler(Filters.photo, cartoonize))
+
+# تشغيل البوت
+updater.start_polling()
+
+# الاستمرار في تشغيل البوت حتى يتم إيقافه يدويًا
+updater.idle()
+```
